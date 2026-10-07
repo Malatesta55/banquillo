@@ -38,7 +38,7 @@ function seed(): Store {
     played: true, td_home: Math.floor(r() * r() * 4), td_away: Math.floor(r() * r() * 4),
     cas_home: Math.floor(r() * 3), cas_away: Math.floor(r() * 3), reported_by: profiles[0].id,
   }));
-  return { profiles, teams, players, competitions: [liga, copa], entries, matches, match_players: [], inducements: [], users, session: null };
+  return { profiles, teams, players, competitions: [liga, copa], entries, matches, match_players: [], inducements: [], postgame: [], users, session: null };
 }
 
 export function demoRepo(): Repo {
@@ -73,8 +73,8 @@ export function demoRepo(): Repo {
     async signOut() { s.session = null; save(); authListeners.forEach(f => f()); },
     async updateProfile(name) { const p = s.profiles.find(x => x.id === me()); if (p) p.name = name; save(); },
     async load() {
-      const { profiles, teams, players, competitions, entries, matches, match_players = [], inducements = [] } = structuredClone(s);
-      return { profiles, teams, players: players.map(p => ({ ...p, advances: p.advances ?? [] })), competitions, entries, matches, match_players, inducements };
+      const { profiles, teams, players, competitions, entries, matches, match_players = [], inducements = [], postgame = [] } = structuredClone(s);
+      return { profiles, teams, players: players.map(p => ({ ...p, advances: p.advances ?? [] })), competitions, entries, matches, match_players, inducements, postgame };
     },
     subscribe(cb) { listeners.add(cb); return () => listeners.delete(cb); },
 
@@ -141,6 +141,12 @@ export function demoRepo(): Repo {
       if (!m || (m.home !== team_id && m.away !== team_id) || !ownsTeam(team_id)) deny();
       s.match_players = (s.match_players ?? []).filter(x => !(x.match_id === match_id && x.team_id === team_id))
         .concat(rows.map(r => ({ ...r, match_id, team_id })));
+      save();
+    },
+    async savePostgame(row) {
+      const m = s.matches.find(x => x.id === row.match_id);
+      if (!m || (m.home !== row.team_id && m.away !== row.team_id) || !ownsTeam(row.team_id)) deny();
+      s.postgame = (s.postgame ?? []).filter(x => !(x.match_id === row.match_id && x.team_id === row.team_id)).concat([row]);
       save();
     },
     async saveInducements(match_id, team_id, pick, treasury_spent) {

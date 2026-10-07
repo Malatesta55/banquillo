@@ -42,7 +42,7 @@ export function supabaseRepo(url: string, key: string): Repo {
       check(await sb.from('profiles').update({ name }).eq('id', id));
     },
     async load(): Promise<DB> {
-      const [profiles, teams, players, competitions, entries, matches, mp, ind] = await Promise.all([
+      const [profiles, teams, players, competitions, entries, matches, mp, ind, pg] = await Promise.all([
         sb.from('profiles').select('id,name'),
         sb.from('teams').select('*').order('created_at'),
         sb.from('players').select('*'),
@@ -51,6 +51,7 @@ export function supabaseRepo(url: string, key: string): Repo {
         sb.from('matches').select('*'),
         sb.from('match_players').select('*'),
         sb.from('inducements').select('*'),
+        sb.from('postgame').select('*'),
       ]);
       // Si aún no se ha aplicado la migración de BB2025, la app sigue funcionando sin experiencia ni incentivos.
       const opt = <T,>(r: { data: T[] | null; error: unknown }) => (r.error ? [] : r.data ?? []);
@@ -58,14 +59,14 @@ export function supabaseRepo(url: string, key: string): Repo {
         profiles: check(profiles), teams: check(teams),
         players: check(players).map((p: Player) => ({ ...p, advances: p.advances ?? [] })),
         competitions: check(competitions), entries: check(entries), matches: check(matches),
-        match_players: opt(mp), inducements: opt(ind),
+        match_players: opt(mp), inducements: opt(ind), postgame: opt(pg),
       };
     },
     subscribe(cb) {
       let t: ReturnType<typeof setTimeout> | undefined;
       const debounced = () => { clearTimeout(t); t = setTimeout(cb, 300); };
       const ch = sb.channel('banquillo');
-      for (const table of ['teams', 'players', 'competitions', 'entries', 'matches', 'profiles', 'match_players', 'inducements'])
+      for (const table of ['teams', 'players', 'competitions', 'entries', 'matches', 'profiles', 'match_players', 'inducements', 'postgame'])
         ch.on('postgres_changes', { event: '*', schema: 'public', table }, debounced);
       ch.subscribe();
       return () => { sb.removeChannel(ch); };
@@ -103,6 +104,7 @@ export function supabaseRepo(url: string, key: string): Repo {
       check(await sb.from('match_players').delete().eq('match_id', match_id).eq('team_id', team_id));
       if (rows.length) check(await sb.from('match_players').insert(rows.map(r => ({ ...r, match_id, team_id }))));
     },
+    async savePostgame(row) { check(await sb.from('postgame').upsert(row)); },
     async saveInducements(match_id, team_id, pick, treasury_spent) {
       check(await sb.from('inducements').upsert({ match_id, team_id, pick, treasury_spent }));
     },

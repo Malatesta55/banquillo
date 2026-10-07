@@ -7,7 +7,7 @@ const url = import.meta.env.VITE_SUPABASE_URL as string | undefined;
 const key = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
 export const repo: Repo = url && key ? supabaseRepo(url, key) : demoRepo();
 
-const EMPTY: DB = { profiles: [], teams: [], players: [], competitions: [], entries: [], matches: [], match_players: [], inducements: [] };
+const EMPTY: DB = { profiles: [], teams: [], players: [], competitions: [], entries: [], matches: [], match_players: [], inducements: [], postgame: [] };
 
 type Ctx = {
   db: DB; me: Profile | null; loading: boolean; repo: Repo;

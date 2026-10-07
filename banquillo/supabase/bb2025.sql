@@ -1,4 +1,4 @@
--- Banquillo: experiencia, avances e incentivos de Blood Bowl 2025.
+-- Banquillo: experiencia, avances, incentivos y después del partido de Blood Bowl 2025.
 -- Si ya tenías la base de datos creada, pega esto en Supabase > SQL Editor y pulsa Run (se puede repetir sin problema).
 
 alter table public.players add column if not exists advances jsonb not null default '[]'::jsonb;
@@ -64,4 +64,32 @@ create policy "borrar incentivos" on public.inducements for delete to authentica
 
 do $$ begin
   alter publication supabase_realtime add table public.match_players, public.inducements;
+exception when duplicate_object then null; end $$;
+
+-- Secuencia de después del partido: ganancias, hinchas fieles y errores caros de cada equipo
+create table if not exists public.postgame (
+  match_id uuid not null references public.matches on delete cascade,
+  team_id uuid not null references public.teams on delete cascade,
+  fan_factor int not null default 0 check (fan_factor >= 0),
+  no_stalling boolean not null default true,
+  winnings int not null default 0,
+  fans_before int not null default 1,
+  fans_after int not null default 1,
+  mistake text not null default 'none',
+  mistake_loss int not null default 0 check (mistake_loss >= 0),
+  primary key (match_id, team_id)
+);
+alter table public.postgame enable row level security;
+drop policy if exists "lectura" on public.postgame;
+drop policy if exists "cerrar partido" on public.postgame;
+drop policy if exists "corregir cierre" on public.postgame;
+drop policy if exists "borrar cierre" on public.postgame;
+create policy "lectura" on public.postgame for select to anon, authenticated using (true);
+create policy "cerrar partido" on public.postgame for insert to authenticated
+  with check (public.owns_team(team_id) and public.plays_match(match_id, team_id));
+create policy "corregir cierre" on public.postgame for update to authenticated
+  using (public.owns_team(team_id)) with check (public.owns_team(team_id) and public.plays_match(match_id, team_id));
+create policy "borrar cierre" on public.postgame for delete to authenticated using (public.owns_team(team_id));
+do $$ begin
+  alter publication supabase_realtime add table public.postgame;
 exception when duplicate_object then null; end $$;

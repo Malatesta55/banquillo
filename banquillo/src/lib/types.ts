@@ -16,6 +16,11 @@ export type MatchPlayer = {
   match_id: string; player_id: string; team_id: string;
   td: number; cas: number; cmp: number; inter: number; ttm: number; mvp: boolean;
 };
+/** Lo que pasa tras el partido para un equipo (ganancias, hinchas, errores caros). */
+export type Postgame = {
+  match_id: string; team_id: string; fan_factor: number; no_stalling: boolean; winnings: number;
+  fans_before: number; fans_after: number; mistake: string; mistake_loss: number;
+};
 export type MatchInducement = { match_id: string; team_id: string; pick: InducementPick; treasury_spent: number };
 export type CompType = 'liga' | 'torneo';
 export type CompStatus = 'open' | 'running' | 'finished';
@@ -33,7 +38,7 @@ export type Match = {
 export type DB = {
   profiles: Profile[]; teams: Team[]; players: Player[];
   competitions: Competition[]; entries: Entry[]; matches: Match[];
-  match_players: MatchPlayer[]; inducements: MatchInducement[];
+  match_players: MatchPlayer[]; inducements: MatchInducement[]; postgame: Postgame[];
 };
 export type NewMatch = Pick<Match, 'competition_id' | 'round' | 'home' | 'away'>;
 export type Result = Pick<Match, 'td_home' | 'td_away' | 'cas_home' | 'cas_away'>;
@@ -69,4 +74,5 @@ export interface Repo {
   /** Sustituye la experiencia de los jugadores de un equipo en un partido. */
   saveMatchPlayers(matchId: string, teamId: string, rows: Omit<MatchPlayer, 'match_id' | 'team_id'>[]): Promise<void>;
   saveInducements(matchId: string, teamId: string, pick: InducementPick, treasurySpent: number): Promise<void>;
+  savePostgame(row: Postgame): Promise<void>;
 }

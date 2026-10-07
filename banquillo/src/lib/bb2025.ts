@@ -112,3 +112,36 @@ export function pickCost(p: InducementPick, race: string, apo: boolean) {
   return Object.entries(p.items).reduce((a, [id, n]) => a + (list.find(i => i.id === id)?.cost ?? 0) * n, 0)
     + p.hires.reduce((a, h) => a + h.cost, 0);
 }
+
+// ---------- Después del partido ----------
+/** Ganancias (k): asistencia / 2 + touchdowns propios + 1 si nadie hizo stalling, todo por 10k. */
+export const winnings = (attendance: number, td: number, noStalling: boolean) => (attendance / 2 + td + (noStalling ? 1 : 0)) * 10;
+export const MAX_FANS = 7, MIN_FANS = 1;
+/** Hinchas fieles tras el partido: si ganas, suben con un D6 igual o mayor; si pierdes, bajan con un D6 menor. */
+export function fansAfter(fans: number, outcome: 'W' | 'D' | 'L', d6: number) {
+  if (outcome === 'W' && d6 >= fans) return Math.min(MAX_FANS, fans + 1);
+  if (outcome === 'L' && d6 < fans) return Math.max(MIN_FANS, fans - 1);
+  return fans;
+}
+export type Mistake = 'none' | 'averted' | 'minor' | 'major' | 'catastrophe';
+export const MISTAKE_LABEL: Record<Mistake, string> = {
+  none: 'Menos de 100k en tesorería: no se tira', averted: 'Crisis evitada', minor: 'Incidente menor (pierdes D3 × 10k)',
+  major: 'Incidente grave (pierdes la mitad de la tesorería)', catastrophe: 'Catástrofe (solo te quedan 2D6 × 10k)',
+};
+const M: Mistake[][] = [ // filas por tramo de tesorería, columnas D6 = 1, 2, 3, 4, 5, 6
+  ['minor', 'averted', 'averted', 'averted', 'averted', 'averted'],
+  ['minor', 'minor', 'minor', 'averted', 'averted', 'averted'],
+  ['major', 'minor', 'minor', 'averted', 'averted', 'averted'],
+  ['major', 'major', 'major', 'minor', 'minor', 'averted'],
+  ['catastrophe', 'major', 'major', 'minor', 'minor', 'minor'],
+  ['catastrophe', 'catastrophe', 'catastrophe', 'major', 'major', 'minor'],
+];
+/** Errores caros: resultado según la tesorería (k) y un D6. */
+export const mistakeFor = (treasury: number, d6: number): Mistake => (treasury < 100 ? 'none' : M[Math.min(5, Math.floor(treasury / 100) - 1)][d6 - 1]);
+/** Lo que se pierde (k). `extra` es la tirada que pide el resultado: D3 en el menor, 2D6 en la catástrofe. */
+export function mistakeLoss(m: Mistake, treasury: number, extra: number) {
+  if (m === 'minor') return Math.min(treasury, extra * 10);
+  if (m === 'major') return Math.floor(treasury / 2 / 5) * 5;
+  if (m === 'catastrophe') return Math.max(0, treasury - extra * 10);
+  return 0;
+}

@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useStore } from '../lib/store';
 import { byRound, compView, progress, roundDone, roundRobin, shuffle, standings, swissRound } from '../lib/logic';
 import type { Competition, Match } from '../lib/types';
-import { InducementsDialog, initialSpp, SppEditor, sppRowsToSave, type SppRow } from '../components/MatchDialogs';
+import { InducementsDialog, initialSpp, PostgameDialog, SppEditor, sppRowsToSave, type SppRow } from '../components/MatchDialogs';
 import { ConfirmButton, Crest, Empty, NumInput, STATUS_TEXT, TeamLine, TextInput, TypePill, useCoach } from '../components/ui';
 
 type Tab = 'tabla' | 'jornadas' | 'equipos' | 'ajustes';
@@ -72,6 +72,7 @@ function Rounds({ comp, teamIds, matches }: { comp: Competition; teamIds: string
   const { db, me, repo, run } = useStore();
   const [editing, setEditing] = useState<Match | null>(null);
   const [inducing, setInducing] = useState<{ m: Match; team: string } | null>(null);
+  const [closing, setClosing] = useState<{ m: Match; team: string } | null>(null);
   const isOrg = me?.id === comp.organizer;
   const rounds = byRound(matches);
   if (comp.status === 'open') return <Empty>El calendario se genera cuando la organización da comienzo a la competición.</Empty>;
@@ -111,6 +112,10 @@ function Rounds({ comp, teamIds, matches }: { comp: Competition; teamIds: string
                   const count = n ? Object.values(n.pick.items).reduce((a, b) => a + b, 0) + n.pick.hires.length : 0;
                   return <button key={tid} className="btn small" onClick={() => setInducing({ m, team: tid! })}>Incentivos{count ? ` (${count})` : ''}</button>;
                 })}
+                {m.played && [m.home, m.away].filter(owns).map(tid => {
+                  const done = db.postgame.some(x => x.match_id === m.id && x.team_id === tid);
+                  return <button key={'pg' + tid} className={'btn small' + (done ? '' : ' primary')} onClick={() => setClosing({ m, team: tid! })}>{done ? 'Ganancias ✓' : 'Ganancias'}</button>;
+                })}
                 {canReport(m) && <button className={'btn small' + (m.played ? '' : ' primary')} onClick={() => setEditing(m)}>{m.played ? 'Editar' : 'Resultado'}</button>}</div>
             </div>
           ) : (
@@ -119,6 +124,7 @@ function Rounds({ comp, teamIds, matches }: { comp: Competition; teamIds: string
         </section>
       ))}
       {editing && <ResultDialog comp={comp} match={editing} onClose={() => setEditing(null)} />}
+      {closing && <PostgameDialog match={closing.m} teamId={closing.team} onClose={() => setClosing(null)} />}
       {inducing && <InducementsDialog match={inducing.m} teamId={inducing.team} onClose={() => setInducing(null)} />}
     </>
   );

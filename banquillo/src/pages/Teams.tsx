@@ -126,7 +126,7 @@ export function TeamPage() {
           <label>Raza<select id="t-race" value={t.race} disabled={!mine || players.length > 0} title={players.length ? 'Para cambiar de raza, quita antes a los jugadores' : undefined} onChange={e => upT({ race: e.target.value })}>{RACES.map(r => <option key={r}>{r}</option>)}</select></label>
           <label>Tesorería (k)<NumInput id="t-tre" value={t.treasury} disabled={!mine} onCommit={treasury => upT({ treasury })} /></label>
           <label>Segundas oportunidades<NumInput id="t-rr" min={0} value={t.rerolls} disabled={!mine} onCommit={rerolls => upT({ rerolls })} /></label>
-          <label>Factor de hinchas<NumInput id="t-fans" min={0} value={t.fans} disabled={!mine} onCommit={fans => upT({ fans })} /></label>
+          <label>Hinchas fieles<NumInput id="t-fans" min={0} value={t.fans} disabled={!mine} onCommit={fans => upT({ fans })} /></label>
           <label className="check" style={{ alignSelf: 'end' }}><input type="checkbox" id="t-apo" checked={t.apothecary} disabled={!mine || (!t.apothecary && roster?.apothecary === false)} onChange={e => upT({ apothecary: e.target.checked })} />Boticario{roster?.apothecary === false && ' (no disponible)'}</label>
         </div>
       </div>

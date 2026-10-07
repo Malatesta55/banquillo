@@ -2,8 +2,8 @@ import { useState } from 'react';
 import { useStore } from '../lib/store';
 import { currentTeamValue, fmtK } from '../lib/logic';
 import {
-  emptyPick, inducementsFor, MAX_MERCS, MAX_STARS, MERC_FEE, MERC_SKILL, pickCost, rand, SPP_LABEL, UNDERDOG_TREASURY,
-  type InducementPick, type SppKey,
+  emptyPick, fansAfter, inducementsFor, MAX_FANS, MAX_MERCS, MAX_STARS, MERC_FEE, MERC_SKILL, MISTAKE_LABEL, mistakeFor, mistakeLoss,
+  pickCost, rand, SPP_LABEL, UNDERDOG_TREASURY, winnings, type InducementPick, type Mistake, type SppKey,
 } from '../lib/bb2025';
 import type { Match, MatchPlayer } from '../lib/types';
 import { Crest } from './ui';
@@ -133,6 +133,92 @@ export function InducementsDialog({ match, teamId, onClose }: { match: Match; te
         <div className="meta"><span>Total <b>{fmtK(total)}</b></span><span>De bolsillo <b>{fmtK(Math.min(total, petty))}</b></span><span>De tesorería <b>{fmtK(fromTreasury)}</b></span></div>
         {error && <p className="note" style={{ color: 'var(--loss)' }}>{error}</p>}
         <div className="row"><button className="btn primary" type="submit" disabled={!!error}>Guardar incentivos</button><button className="btn" type="button" onClick={onClose}>Cancelar</button></div>
+      </form>
+    </div>
+  );
+}
+
+/** Secuencia de después del partido de un equipo: ganancias, hinchas fieles y errores caros. */
+export function PostgameDialog({ match, teamId, onClose }: { match: Match; teamId: string; onClose: () => void }) {
+  const { db, repo, run } = useStore();
+  const t = db.teams.find(x => x.id === teamId)!;
+  const home = match.home === teamId;
+  const oppId = home ? match.away! : match.home;
+  const opp = db.teams.find(x => x.id === oppId)!;
+  const saved = db.postgame.find(x => x.match_id === match.id && x.team_id === teamId);
+  const oppSaved = db.postgame.find(x => x.match_id === match.id && x.team_id === oppId);
+  const myTd = home ? match.td_home : match.td_away, theirTd = home ? match.td_away : match.td_home;
+  const outcome: 'W' | 'D' | 'L' = myTd > theirTd ? 'W' : myTd < theirTd ? 'L' : 'D';
+  // Partimos de cómo estaba el equipo antes de este cierre, para poder corregirlo sin aplicarlo dos veces.
+  const fans0 = saved?.fans_before ?? t.fans;
+  const treasury0 = t.treasury - (saved ? saved.winnings - saved.mistake_loss : 0);
+  const [ff, setFf] = useState(saved?.fan_factor ?? 0);
+  const [oppFf, setOppFf] = useState(oppSaved?.fan_factor ?? 0);
+  const [noStall, setNoStall] = useState(saved?.no_stalling ?? true);
+  const [fanRoll, setFanRoll] = useState<number | null>(null);
+  const [mRoll, setMRoll] = useState<number | null>(null);
+  const [extra, setExtra] = useState<number | null>(null);
+  const attendance = ff + oppFf;
+  const win = winnings(attendance, myTd, noStall);
+  const fans1 = outcome === 'D' ? fans0 : fanRoll === null ? null : fansAfter(fans0, outcome, fanRoll);
+  const pot = treasury0 + win;
+  const mistake: Mistake = pot < 100 ? 'none' : mRoll === null ? 'none' : mistakeFor(pot, mRoll);
+  const needsExtra = mistake === 'minor' || mistake === 'catastrophe';
+  const loss = needsExtra && extra === null ? 0 : mistakeLoss(mistake, pot, extra ?? 0);
+  const missing = !ff ? 'Tira o escribe tu factor de hinchas.' : !oppFf ? 'Falta el factor de hinchas del rival.'
+    : fans1 === null ? 'Tira el D6 de hinchas fieles.' : pot >= 100 && mRoll === null ? 'Tira el D6 de errores caros.'
+    : needsExtra && extra === null ? `Tira el ${mistake === 'minor' ? 'D3' : '2D6'} del error caro.` : '';
+  const roll = (n: number) => rand(n) + 1;
+
+  return (
+    <div className="overlay" onClick={e => e.target === e.currentTarget && onClose()} onKeyDown={e => e.key === 'Escape' && onClose()}>
+      <form className="dialog" style={{ width: 'min(640px,100%)' }} onSubmit={async e => {
+        e.preventDefault();
+        if (missing || fans1 === null) return;
+        if (await run(async () => {
+          await repo.savePostgame({ match_id: match.id, team_id: teamId, fan_factor: ff, no_stalling: noStall, winnings: win, fans_before: fans0, fans_after: fans1, mistake, mistake_loss: loss });
+          await repo.updateTeam(teamId, { treasury: pot - loss, fans: fans1 });
+        }, 'Partido cerrado')) onClose();
+      }}>
+        <div><div className="eyebrow">{t.name} {myTd}–{theirTd} {opp.name} · {{ W: 'Victoria', D: 'Empate', L: 'Derrota' }[outcome]}</div><h2>Después del partido</h2></div>
+        {saved && <p className="note">Ya cerraste este partido. Si lo vuelves a guardar, se deshace lo anterior y se aplica lo nuevo.</p>}
+
+        <div style={{ display: 'grid', gap: 8 }}>
+          <b>1. Ganancias</b>
+          <div className="fields">
+            <label>Tu factor de hinchas (D3 + {fans0})<div className="row"><input type="number" min={0} style={{ width: 70 }} value={ff} onChange={e => setFf(Math.max(0, parseInt(e.target.value, 10) || 0))} />
+              <button type="button" className="btn small" onClick={() => setFf(roll(3) + fans0)}>Tirar</button></div></label>
+            <label>Del rival{oppSaved ? ' (lo apuntó su entrenador)' : ` (D3 + ${opp.fans})`}<div className="row"><input type="number" min={0} style={{ width: 70 }} value={oppFf} disabled={!!oppSaved} onChange={e => setOppFf(Math.max(0, parseInt(e.target.value, 10) || 0))} />
+              {!oppSaved && <button type="button" className="btn small" onClick={() => setOppFf(roll(3) + opp.fans)}>Tirar</button>}</div></label>
+            <label className="check" style={{ alignSelf: 'end' }}><input type="checkbox" checked={noStall} onChange={e => setNoStall(e.target.checked)} />Nadie de mi equipo hizo stalling</label>
+          </div>
+          <p className="note">Asistencia {attendance} · ({attendance} / 2 + {myTd} TD{noStall ? ' + 1' : ''}) × 10k = <b>{fmtK(win)}</b></p>
+        </div>
+
+        <div style={{ display: 'grid', gap: 8 }}>
+          <b>2. Hinchas fieles ({fans0})</b>
+          {outcome === 'D' ? <p className="note">Con empate no cambian.</p> : <div className="row">
+            <button type="button" className="btn small" disabled={fanRoll !== null} onClick={() => setFanRoll(roll(6))}>{fanRoll === null ? 'Tirar D6' : `D6: ${fanRoll}`}</button>
+            <span className="note">{outcome === 'W' ? `Has ganado: suben 1 si sacas ${fans0} o más (máximo ${MAX_FANS}).` : `Has perdido: bajan 1 si sacas menos de ${fans0} (mínimo 1).`}
+              {fans1 !== null && <> Quedan en <b>{fans1}</b>.</>}</span>
+          </div>}
+        </div>
+
+        <div style={{ display: 'grid', gap: 8 }}>
+          <b>3. Errores caros</b>
+          <p className="note">Tesorería con las ganancias: <b>{fmtK(pot)}</b>.{pot >= 100 ? ' Con 100k o más hay que tirar un D6.' : ' Por debajo de 100k no se tira.'}</p>
+          {pot >= 100 && <div className="row">
+            <button type="button" className="btn small" disabled={mRoll !== null} onClick={() => setMRoll(roll(6))}>{mRoll === null ? 'Tirar D6' : `D6: ${mRoll}`}</button>
+            {mRoll !== null && <span className="note">{MISTAKE_LABEL[mistake]}</span>}
+            {needsExtra && <button type="button" className="btn small" disabled={extra !== null}
+              onClick={() => setExtra(mistake === 'minor' ? roll(3) : roll(6) + roll(6))}>{extra === null ? `Tirar ${mistake === 'minor' ? 'D3' : '2D6'}` : `${mistake === 'minor' ? 'D3' : '2D6'}: ${extra}`}</button>}
+          </div>}
+        </div>
+
+        <div className="meta"><span>Ganancias <b>+{fmtK(win)}</b></span><span>Errores caros <b>−{fmtK(loss)}</b></span>
+          <span>Tesorería final <b>{fmtK(pot - loss)}</b></span><span>Hinchas fieles <b>{fans1 ?? fans0}</b></span></div>
+        {missing && <p className="note">{missing}</p>}
+        <div className="row"><button className="btn primary" type="submit" disabled={!!missing}>Aplicar al equipo</button><button className="btn" type="button" onClick={onClose}>Cancelar</button></div>
       </form>
     </div>
   );

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useStore } from '../lib/store';
-import { compView, fmtK, sppOf, standings, teamValue } from '../lib/logic';
+import { compView, fmtK, injuriesOf, sppOf, standings, teamValue } from '../lib/logic';
 import { RACES, STATUS_LABEL } from '../lib/races';
 import { APOTHECARY_COST, fmtTarget, positionOf, rerollCost, rosterOf, START_BUDGET } from '../lib/rosters';
 import type { Player, PlayerStatus, Team } from '../lib/types';
@@ -176,11 +176,15 @@ export function TeamPage() {
 }
 
 function PosStats({ race, player }: { race: string; player: Player }) {
-  const x = currentProfile(positionOf(race, player.pos), player.advances);
+  const { db } = useStore();
+  const inj = injuriesOf(player.id, db);
+  const x = currentProfile(positionOf(race, player.pos), player.advances, inj.lasting);
   const gained = new Set(player.advances.map(a => a.skill));
   if (!x) return <><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td className="l note">—</td></>;
   return <><td>{x.ma}</td><td>{x.st}</td><td>{fmtTarget(x.ag)}</td><td>{fmtTarget(x.pa)}</td><td>{fmtTarget(x.av)}</td>
-    <td className="l skills">{x.skills.length ? x.skills.map((s, i) => <span key={s}>{i > 0 && ', '}{gained.has(s) ? <b style={{ color: 'var(--accent)' }}>{s}</b> : s}</span>) : '—'}</td></>;
+    <td className="l skills">{x.skills.length ? x.skills.map((s, i) => <span key={s}>{i > 0 && ', '}{gained.has(s) ? <b style={{ color: 'var(--accent)' }}>{s}</b> : s}</span>) : '—'}
+      {(inj.lasting.length > 0 || inj.niggling > 0) && <span style={{ color: 'var(--loss)', display: 'block' }}>
+        {inj.lasting.map(s => `−1 ${s}`).join(', ')}{inj.lasting.length > 0 && inj.niggling > 0 && ' · '}{inj.niggling > 0 && `Lesión persistente${inj.niggling > 1 ? ` ×${inj.niggling}` : ''}`}</span>}</td></>;
 }
 
 function HireForm({ team: t, players, taken }: { team: Team; players: Player[]; taken: Record<string, number> }) {

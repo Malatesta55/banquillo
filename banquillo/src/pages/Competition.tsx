@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useStore } from '../lib/store';
 import { byRound, compView, progress, roundDone, roundRobin, shuffle, standings, swissRound } from '../lib/logic';
 import type { Competition, Match } from '../lib/types';
-import { InducementsDialog, initialSpp, PostgameDialog, SppEditor, sppRowsToSave, type SppRow } from '../components/MatchDialogs';
+import { casualtiesSuffered, InducementsDialog, initialSpp, PostgameDialog, SppEditor, sppRowsToSave, type SppRow } from '../components/MatchDialogs';
 import { ConfirmButton, Crest, Empty, NumInput, STATUS_TEXT, TeamLine, TextInput, TypePill, useCoach } from '../components/ui';
 
 type Tab = 'tabla' | 'jornadas' | 'equipos' | 'ajustes';
@@ -131,10 +131,17 @@ function Rounds({ comp, teamIds, matches }: { comp: Competition; teamIds: string
 }
 
 function ResultDialog({ comp, match, onClose }: { comp: Competition; match: Match; onClose: () => void }) {
-  const { db, me, repo, run } = useStore();
+  const { db, repo, run } = useStore();
   const [r, setR] = useState({ td_home: match.td_home, td_away: match.td_away, cas_home: match.cas_home, cas_away: match.cas_away });
-  const mineIds = [match.home, match.away!].filter(id => db.teams.find(t => t.id === id)?.owner === me?.id);
-  const [spp, setSpp] = useState<Record<string, Record<string, SppRow>>>(() => Object.fromEntries(mineIds.map(id => [id, initialSpp(match.id, id, db)])));
+  // Quien puede meter el resultado (los dos entrenadores o la organización) rellena el acta de los dos equipos.
+  const ids = [match.home, match.away!];
+  const [spp, setSpp] = useState<Record<string, Record<string, SppRow>>>(() => Object.fromEntries(ids.map(id => [id, initialSpp(match.id, id, db)])));
+  const changeRows = (id: string, rows: Record<string, SppRow>) => {
+    const before = casualtiesSuffered(spp[id]), after = casualtiesSuffered(rows);
+    setSpp(x => ({ ...x, [id]: rows }));
+    // Las bajas que sufre un equipo son lesiones causadas por el rival.
+    if (before !== after) setR(x => ({ ...x, [id === match.home ? 'cas_away' : 'cas_home']: after }));
+  };
   const set = (k: keyof typeof r) => (e: React.ChangeEvent<HTMLInputElement>) => setR({ ...r, [k]: Math.max(0, parseInt(e.target.value, 10) || 0) });
   const side = (tid: string, td: 'td_home' | 'td_away', cas: 'cas_home' | 'cas_away') => {
     const t = db.teams.find(x => x.id === tid);
@@ -147,21 +154,22 @@ function ResultDialog({ comp, match, onClose }: { comp: Competition; match: Matc
   };
   return (
     <div className="overlay" onClick={e => e.target === e.currentTarget && onClose()} onKeyDown={e => e.key === 'Escape' && onClose()}>
-      <form className="dialog" style={mineIds.length ? { width: 'min(760px,100%)' } : undefined} onSubmit={async e => {
+      <form className="dialog" style={{ width: 'min(900px,100%)' }} onSubmit={async e => {
         e.preventDefault();
         if (await run(async () => {
           await repo.saveResult(match.id, r);
-          for (const id of mineIds) await repo.saveMatchPlayers(match.id, id, sppRowsToSave(spp[id]));
+          for (const id of ids) await repo.saveMatchPlayers(match.id, id, sppRowsToSave(spp[id]));
         }, 'Resultado guardado')) onClose();
       }}>
         <div><div className="eyebrow">{comp.name} · {comp.type === 'liga' ? 'Jornada' : 'Ronda'} {match.round}</div><h2>Acta del partido</h2></div>
         <div className="duel">{side(match.home, 'td_home', 'cas_home')}{side(match.away!, 'td_away', 'cas_away')}</div>
-        {mineIds.map(id => <SppEditor key={id} teamId={id} rows={spp[id]} onChange={rows => setSpp(x => ({ ...x, [id]: rows }))}
+        {ids.map(id => <SppEditor key={id} teamId={id} rows={spp[id]} onChange={rows => changeRows(id, rows)}
           td={id === match.home ? r.td_home : r.td_away} cas={id === match.home ? r.cas_home : r.cas_away} />)}
-        {mineIds.length > 0 && <p className="note">Cada entrenador apunta la experiencia de sus propios jugadores: TD 3 PE, lesión 2, pase completo 1, intercepción 2, lanzar compañero 1 (y 1 al lanzado si aterriza bien), MVP 4.</p>}
+        <p className="note">Los PE se suman solos a cada jugador al guardar. Los equipos con Brawlin' Brutes ganan 2 por TD y 3 por lesión causada.
+          En "Lesión sufrida" apunta lo que le pasó a cada jugador: al guardar, los muertos pasan a Muerto y los gravemente heridos, con lesión grave o permanente, a "Se pierde partido". Las bajas de un equipo se suman a las lesiones causadas del rival.</p>
         <div className="row" style={{ justifyContent: 'space-between' }}>
           <div className="row"><button className="btn primary" type="submit">Guardar resultado</button><button className="btn" type="button" onClick={onClose}>Cancelar</button></div>
-          {match.played && <button className="btn danger" type="button" onClick={async () => { if (await run(async () => { await repo.clearResult(match.id); for (const id of mineIds) await repo.saveMatchPlayers(match.id, id, []); }, 'Resultado anulado')) onClose(); }}>Anular</button>}
+          {match.played && <button className="btn danger" type="button" onClick={async () => { if (await run(async () => { await repo.clearResult(match.id); for (const id of ids) await repo.saveMatchPlayers(match.id, id, []); }, 'Resultado anulado')) onClose(); }}>Anular</button>}
         </div>
       </form>
     </div>

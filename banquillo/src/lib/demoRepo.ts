@@ -3,7 +3,7 @@ import { roundRobin } from './logic';
 import { starterLineup } from './rosters';
 
 /** Modo demo: todo en localStorage, con cuentas ficticias. Sirve para probar la app sin Supabase. */
-const KEY = 'banquillo-demo-v3';
+const KEY = 'banquillo-demo-v4';
 const uid = () => crypto.randomUUID();
 type Store = DB & { users: Record<string, string>; session: string | null };
 
@@ -26,7 +26,7 @@ function seed(): Store {
   }));
   const players = teams.flatMap(t => starterLineup(t.race).map((p, i) => ({
     id: uid(), team_id: t.id, num: i + 1, name: pick(first) + ' ' + pick(last), pos: p.name, value: p.cost,
-    spp: Math.floor(r() * 14), status: (r() > 0.93 ? 'mng' : 'ok') as 'ok' | 'mng',
+    spp: Math.floor(r() * 14), status: (r() > 0.93 ? 'mng' : 'ok') as 'ok' | 'mng', advances: [],
   })));
   const liga = { id: uid(), organizer: profiles[0].id, name: 'Liga de Otoño 2026', type: 'liga' as const, double_round: false, total_rounds: 0, pts_w: 3, pts_d: 1, pts_l: 0, status: 'running' as const, created_at: new Date(now).toISOString() };
   const copa = { id: uid(), organizer: profiles[1].id, name: 'Copa del Mamporro', type: 'torneo' as const, double_round: false, total_rounds: 3, pts_w: 3, pts_d: 1, pts_l: 0, status: 'open' as const, created_at: new Date(now + 1).toISOString() };
@@ -38,7 +38,7 @@ function seed(): Store {
     played: true, td_home: Math.floor(r() * r() * 4), td_away: Math.floor(r() * r() * 4),
     cas_home: Math.floor(r() * 3), cas_away: Math.floor(r() * 3), reported_by: profiles[0].id,
   }));
-  return { profiles, teams, players, competitions: [liga, copa], entries, matches, users, session: null };
+  return { profiles, teams, players, competitions: [liga, copa], entries, matches, match_players: [], inducements: [], users, session: null };
 }
 
 export function demoRepo(): Repo {
@@ -73,8 +73,8 @@ export function demoRepo(): Repo {
     async signOut() { s.session = null; save(); authListeners.forEach(f => f()); },
     async updateProfile(name) { const p = s.profiles.find(x => x.id === me()); if (p) p.name = name; save(); },
     async load() {
-      const { profiles, teams, players, competitions, entries, matches } = structuredClone(s);
-      return { profiles, teams, players, competitions, entries, matches };
+      const { profiles, teams, players, competitions, entries, matches, match_players = [], inducements = [] } = structuredClone(s);
+      return { profiles, teams, players: players.map(p => ({ ...p, advances: p.advances ?? [] })), competitions, entries, matches, match_players, inducements };
     },
     subscribe(cb) { listeners.add(cb); return () => listeners.delete(cb); },
 
@@ -90,7 +90,7 @@ export function demoRepo(): Repo {
       s.teams = s.teams.filter(t => t.id !== id); s.players = s.players.filter(p => p.team_id !== id);
       s.entries = s.entries.filter(e => e.team_id !== id); save();
     },
-    async addPlayer(p) { if (!ownsTeam(p.team_id)) deny(); s.players.push({ ...p, id: uid() }); save(); },
+    async addPlayer(p) { if (!ownsTeam(p.team_id)) deny(); s.players.push({ ...p, advances: [], id: uid() }); save(); },
     async updatePlayer(id, patch) {
       const p = s.players.find(x => x.id === id); if (!p || !ownsTeam(p.team_id)) deny();
       Object.assign(p!, patch); save();
@@ -135,6 +135,20 @@ export function demoRepo(): Repo {
       const m = s.matches.find(x => x.id === id)!;
       if (!organizes(m.competition_id) && !ownsTeam(m.home) && !(m.away && ownsTeam(m.away))) deny();
       Object.assign(m, { td_home: 0, td_away: 0, cas_home: 0, cas_away: 0, played: false, reported_by: null }); save();
+    },
+    async saveMatchPlayers(match_id, team_id, rows) {
+      const m = s.matches.find(x => x.id === match_id);
+      if (!m || (m.home !== team_id && m.away !== team_id) || !ownsTeam(team_id)) deny();
+      s.match_players = (s.match_players ?? []).filter(x => !(x.match_id === match_id && x.team_id === team_id))
+        .concat(rows.map(r => ({ ...r, match_id, team_id })));
+      save();
+    },
+    async saveInducements(match_id, team_id, pick, treasury_spent) {
+      const m = s.matches.find(x => x.id === match_id);
+      if (!m || (m.home !== team_id && m.away !== team_id) || !ownsTeam(team_id)) deny();
+      s.inducements = (s.inducements ?? []).filter(x => !(x.match_id === match_id && x.team_id === team_id))
+        .concat([{ match_id, team_id, pick, treasury_spent }]);
+      save();
     },
   };
 }

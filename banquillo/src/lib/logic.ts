@@ -1,4 +1,5 @@
-import type { Competition, DB, Match, NewMatch, Team } from './types';
+import type { Competition, DB, Match, NewMatch, Player, Team } from './types';
+import { SPP } from './bb2025';
 import { APOTHECARY_COST, rerollCost } from './rosters';
 
 export function shuffle<T>(a: T[]): T[] {
@@ -123,4 +124,17 @@ export function compView(db: DB, id: string) {
   const teamIds = db.entries.filter(e => e.competition_id === id).map(e => e.team_id);
   const matches = db.matches.filter(m => m.competition_id === id).sort((a, b) => a.round - b.round);
   return { comp, teamIds, matches };
+}
+
+/** PE de un jugador: ajuste manual + lo apuntado en las actas, menos lo gastado en avances. */
+export function sppOf(p: Player, db: DB) {
+  const earned = p.spp + db.match_players.filter(x => x.player_id === p.id)
+    .reduce((a, x) => a + x.td * SPP.td + x.cas * SPP.cas + x.cmp * SPP.cmp + x.inter * SPP.inter + x.ttm * SPP.ttm + (x.mvp ? SPP.mvp : 0), 0);
+  const spent = (p.advances ?? []).reduce((a, x) => a + x.spp, 0);
+  return { earned, spent, available: earned - spent };
+}
+
+/** Valor de equipo actual (VEA): sin los jugadores que se pierden el próximo partido. */
+export function currentTeamValue(t: Team, db: DB): number {
+  return teamValue(t, db) - db.players.filter(p => p.team_id === t.id && p.status === 'mng').reduce((a, p) => a + p.value, 0);
 }

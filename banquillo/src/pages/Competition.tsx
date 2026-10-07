@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useStore } from '../lib/store';
 import { byRound, compView, progress, roundDone, roundRobin, shuffle, standings, swissRound } from '../lib/logic';
 import type { Competition, Match } from '../lib/types';
+import { InducementsDialog, initialSpp, SppEditor, sppRowsToSave, type SppRow } from '../components/MatchDialogs';
 import { ConfirmButton, Crest, Empty, NumInput, STATUS_TEXT, TeamLine, TextInput, TypePill, useCoach } from '../components/ui';
 
 type Tab = 'tabla' | 'jornadas' | 'equipos' | 'ajustes';
@@ -70,6 +71,7 @@ function Table({ comp, teamIds, matches }: { comp: Competition; teamIds: string[
 function Rounds({ comp, teamIds, matches }: { comp: Competition; teamIds: string[]; matches: Match[] }) {
   const { db, me, repo, run } = useStore();
   const [editing, setEditing] = useState<Match | null>(null);
+  const [inducing, setInducing] = useState<{ m: Match; team: string } | null>(null);
   const isOrg = me?.id === comp.organizer;
   const rounds = byRound(matches);
   if (comp.status === 'open') return <Empty>El calendario se genera cuando la organización da comienzo a la competición.</Empty>;
@@ -103,7 +105,13 @@ function Rounds({ comp, teamIds, matches }: { comp: Competition; teamIds: string
               <div className="home"><TeamLine id={m.home} /></div>
               <div className={'score' + (m.played ? '' : ' pending')}>{m.played ? <>{m.td_home} – {m.td_away}<small>CAS {m.cas_home}–{m.cas_away}</small></> : 'vs'}</div>
               <div className="away"><TeamLine id={m.away} reverse /></div>
-              <div className="act">{canReport(m) && <button className={'btn small' + (m.played ? '' : ' primary')} onClick={() => setEditing(m)}>{m.played ? 'Editar' : 'Resultado'}</button>}</div>
+              <div className="act">
+                {comp.status === 'running' && !m.played && [m.home, m.away].filter(owns).map(tid => {
+                  const n = db.inducements.find(x => x.match_id === m.id && x.team_id === tid);
+                  const count = n ? Object.values(n.pick.items).reduce((a, b) => a + b, 0) + n.pick.hires.length : 0;
+                  return <button key={tid} className="btn small" onClick={() => setInducing({ m, team: tid! })}>Incentivos{count ? ` (${count})` : ''}</button>;
+                })}
+                {canReport(m) && <button className={'btn small' + (m.played ? '' : ' primary')} onClick={() => setEditing(m)}>{m.played ? 'Editar' : 'Resultado'}</button>}</div>
             </div>
           ) : (
             <div className="match" key={m.id}><div><TeamLine id={m.home} /></div><div className="score pending">—</div><div className="bye">Descansa</div><div /></div>
@@ -111,13 +119,16 @@ function Rounds({ comp, teamIds, matches }: { comp: Competition; teamIds: string
         </section>
       ))}
       {editing && <ResultDialog comp={comp} match={editing} onClose={() => setEditing(null)} />}
+      {inducing && <InducementsDialog match={inducing.m} teamId={inducing.team} onClose={() => setInducing(null)} />}
     </>
   );
 }
 
 function ResultDialog({ comp, match, onClose }: { comp: Competition; match: Match; onClose: () => void }) {
-  const { db, repo, run } = useStore();
+  const { db, me, repo, run } = useStore();
   const [r, setR] = useState({ td_home: match.td_home, td_away: match.td_away, cas_home: match.cas_home, cas_away: match.cas_away });
+  const mineIds = [match.home, match.away!].filter(id => db.teams.find(t => t.id === id)?.owner === me?.id);
+  const [spp, setSpp] = useState<Record<string, Record<string, SppRow>>>(() => Object.fromEntries(mineIds.map(id => [id, initialSpp(match.id, id, db)])));
   const set = (k: keyof typeof r) => (e: React.ChangeEvent<HTMLInputElement>) => setR({ ...r, [k]: Math.max(0, parseInt(e.target.value, 10) || 0) });
   const side = (tid: string, td: 'td_home' | 'td_away', cas: 'cas_home' | 'cas_away') => {
     const t = db.teams.find(x => x.id === tid);
@@ -130,12 +141,21 @@ function ResultDialog({ comp, match, onClose }: { comp: Competition; match: Matc
   };
   return (
     <div className="overlay" onClick={e => e.target === e.currentTarget && onClose()} onKeyDown={e => e.key === 'Escape' && onClose()}>
-      <form className="dialog" onSubmit={async e => { e.preventDefault(); if (await run(() => repo.saveResult(match.id, r), 'Resultado guardado')) onClose(); }}>
+      <form className="dialog" style={mineIds.length ? { width: 'min(760px,100%)' } : undefined} onSubmit={async e => {
+        e.preventDefault();
+        if (await run(async () => {
+          await repo.saveResult(match.id, r);
+          for (const id of mineIds) await repo.saveMatchPlayers(match.id, id, sppRowsToSave(spp[id]));
+        }, 'Resultado guardado')) onClose();
+      }}>
         <div><div className="eyebrow">{comp.name} · {comp.type === 'liga' ? 'Jornada' : 'Ronda'} {match.round}</div><h2>Acta del partido</h2></div>
         <div className="duel">{side(match.home, 'td_home', 'cas_home')}{side(match.away!, 'td_away', 'cas_away')}</div>
+        {mineIds.map(id => <SppEditor key={id} teamId={id} rows={spp[id]} onChange={rows => setSpp(x => ({ ...x, [id]: rows }))}
+          td={id === match.home ? r.td_home : r.td_away} cas={id === match.home ? r.cas_home : r.cas_away} />)}
+        {mineIds.length > 0 && <p className="note">Cada entrenador apunta la experiencia de sus propios jugadores: TD 3 PE, lesión 2, pase completo 1, intercepción 2, lanzar compañero 1 (y 1 al lanzado si aterriza bien), MVP 4.</p>}
         <div className="row" style={{ justifyContent: 'space-between' }}>
           <div className="row"><button className="btn primary" type="submit">Guardar resultado</button><button className="btn" type="button" onClick={onClose}>Cancelar</button></div>
-          {match.played && <button className="btn danger" type="button" onClick={async () => { if (await run(() => repo.clearResult(match.id), 'Resultado anulado')) onClose(); }}>Anular</button>}
+          {match.played && <button className="btn danger" type="button" onClick={async () => { if (await run(async () => { await repo.clearResult(match.id); for (const id of mineIds) await repo.saveMatchPlayers(match.id, id, []); }, 'Resultado anulado')) onClose(); }}>Anular</button>}
         </div>
       </form>
     </div>

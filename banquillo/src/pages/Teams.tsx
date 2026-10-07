@@ -1,12 +1,14 @@
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useStore } from '../lib/store';
-import { compView, fmtK, standings, teamValue } from '../lib/logic';
+import { compView, fmtK, sppOf, standings, teamValue } from '../lib/logic';
 import { RACES, STATUS_LABEL } from '../lib/races';
 import { APOTHECARY_COST, fmtTarget, positionOf, rerollCost, rosterOf, START_BUDGET } from '../lib/rosters';
 import type { Player, PlayerStatus, Team } from '../lib/types';
 import { ConfirmButton, Crest, Empty, NumInput, TextInput, useCoach } from '../components/ui';
 import { RosterFacts, RosterTable } from '../components/RosterTable';
+import { AdvanceDialog } from '../components/AdvanceDialog';
+import { currentProfile, LEVELS } from '../lib/bb2025';
 
 const MAX_PLAYERS = 16, MIN_PLAYERS = 11;
 
@@ -96,6 +98,7 @@ export function Teams() {
 export function TeamPage() {
   const { id = '' } = useParams();
   const { db, me, repo, run, loading } = useStore();
+  const [adv, setAdv] = useState<Player | null>(null);
   const coach = useCoach();
   const nav = useNavigate();
   const t = db.teams.find(x => x.id === id);
@@ -142,12 +145,12 @@ export function TeamPage() {
                       {!positionOf(t.race, p.pos) && <option>{p.pos}</option>}
                       {roster.positions.map(x => <option key={x.name}>{x.name}</option>)}</select>
                   : <TextInput id={`p-${p.id}-pos`} style={{ minWidth: 110 }} value={p.pos} disabled={!mine} onCommit={pos => upP(p, { pos })} />}</td>
-                <PosStats race={t.race} pos={p.pos} />
-                <td><NumInput id={`p-${p.id}-spp`} style={{ width: 60 }} value={p.spp} disabled={!mine} onCommit={spp => upP(p, { spp })} /></td>
+                <PosStats race={t.race} player={p} />
+                <td title={`Ganados ${sppOf(p, db).earned} · gastados ${sppOf(p, db).spent}`}><b>{sppOf(p, db).available}</b>{p.advances.length > 0 && <small className="note" style={{ display: 'block' }}>{LEVELS[p.advances.length]}</small>}</td>
                 <td><NumInput id={`p-${p.id}-val`} style={{ width: 70 }} value={p.value} disabled={!mine} onCommit={value => upP(p, { value })} /></td>
                 <td className="l"><select id={`p-${p.id}-st`} value={p.status} disabled={!mine} onChange={e => upP(p, { status: e.target.value as PlayerStatus })}>
                   {Object.entries(STATUS_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></td>
-                {mine && <td><button className="btn small danger" onClick={() => run(() => repo.deletePlayer(p.id))}>Quitar</button></td>}
+                {mine && <td><div className="row" style={{ flexWrap: 'nowrap' }}><button className="btn small" onClick={() => setAdv(p)}>Mejorar</button><button className="btn small danger" onClick={() => run(() => repo.deletePlayer(p.id))}>Quitar</button></div></td>}
               </tr>))}
             {!players.length && <tr><td colSpan={13} className="note">Sin jugadores todavía.</td></tr>}
           </tbody>
@@ -155,6 +158,7 @@ export function TeamPage() {
         {mine && <HireForm team={t} players={players} taken={taken} />}
         {roster && <div className="card"><h3>Posiciones de {t.race} (BB2025)</h3><RosterFacts roster={roster} /><RosterTable roster={roster} taken={taken} /></div>}
       </div>
+      {adv && <AdvanceDialog team={t} player={db.players.find(x => x.id === adv.id) ?? adv} onClose={() => setAdv(null)} />}
       <div className="card"><h3>Trayectoria</h3>
         {comps.length ? <div className="scroll" style={{ border: 0 }}><table>
           <thead><tr><th className="l">Competición</th><th>Pos.</th><th>PJ</th><th>G</th><th>E</th><th>P</th><th>TD</th><th>CAS</th><th>Pts</th></tr></thead>
@@ -171,11 +175,12 @@ export function TeamPage() {
   );
 }
 
-function PosStats({ race, pos }: { race: string; pos: string }) {
-  const x = positionOf(race, pos);
+function PosStats({ race, player }: { race: string; player: Player }) {
+  const x = currentProfile(positionOf(race, player.pos), player.advances);
+  const gained = new Set(player.advances.map(a => a.skill));
   if (!x) return <><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td className="l note">—</td></>;
   return <><td>{x.ma}</td><td>{x.st}</td><td>{fmtTarget(x.ag)}</td><td>{fmtTarget(x.pa)}</td><td>{fmtTarget(x.av)}</td>
-    <td className="l skills">{x.skills.join(', ') || '—'}</td></>;
+    <td className="l skills">{x.skills.length ? x.skills.map((s, i) => <span key={s}>{i > 0 && ', '}{gained.has(s) ? <b style={{ color: 'var(--accent)' }}>{s}</b> : s}</span>) : '—'}</td></>;
 }
 
 function HireForm({ team: t, players, taken }: { team: Team; players: Player[]; taken: Record<string, number> }) {

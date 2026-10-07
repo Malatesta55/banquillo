@@ -1,3 +1,4 @@
+import type { Advance, InducementPick } from './bb2025';
 export type Profile = { id: string; name: string };
 export type PlayerStatus = 'ok' | 'mng' | 'dead';
 export type Team = {
@@ -7,7 +8,15 @@ export type Team = {
 export type Player = {
   id: string; team_id: string; num: number; name: string; pos: string;
   spp: number; value: number; status: PlayerStatus;
+  /** Avances comprados con experiencia (BB2025). */
+  advances: Advance[];
 };
+/** Experiencia que gana un jugador en un partido. */
+export type MatchPlayer = {
+  match_id: string; player_id: string; team_id: string;
+  td: number; cas: number; cmp: number; inter: number; ttm: number; mvp: boolean;
+};
+export type MatchInducement = { match_id: string; team_id: string; pick: InducementPick; treasury_spent: number };
 export type CompType = 'liga' | 'torneo';
 export type CompStatus = 'open' | 'running' | 'finished';
 export type Competition = {
@@ -24,6 +33,7 @@ export type Match = {
 export type DB = {
   profiles: Profile[]; teams: Team[]; players: Player[];
   competitions: Competition[]; entries: Entry[]; matches: Match[];
+  match_players: MatchPlayer[]; inducements: MatchInducement[];
 };
 export type NewMatch = Pick<Match, 'competition_id' | 'round' | 'home' | 'away'>;
 export type Result = Pick<Match, 'td_home' | 'td_away' | 'cas_home' | 'cas_away'>;
@@ -43,7 +53,7 @@ export interface Repo {
   createTeam(t: Pick<Team, 'name' | 'race' | 'hue'>): Promise<string>;
   updateTeam(id: string, patch: Partial<Team>): Promise<void>;
   deleteTeam(id: string): Promise<void>;
-  addPlayer(p: Omit<Player, 'id'>): Promise<void>;
+  addPlayer(p: Omit<Player, 'id' | 'advances'>): Promise<void>;
   updatePlayer(id: string, patch: Partial<Player>): Promise<void>;
   deletePlayer(id: string): Promise<void>;
 
@@ -56,4 +66,7 @@ export interface Repo {
   deleteMatches(competitionId: string): Promise<void>;
   saveResult(matchId: string, r: Result): Promise<void>;
   clearResult(matchId: string): Promise<void>;
+  /** Sustituye la experiencia de los jugadores de un equipo en un partido. */
+  saveMatchPlayers(matchId: string, teamId: string, rows: Omit<MatchPlayer, 'match_id' | 'team_id'>[]): Promise<void>;
+  saveInducements(matchId: string, teamId: string, pick: InducementPick, treasurySpent: number): Promise<void>;
 }

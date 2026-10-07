@@ -1,5 +1,6 @@
 -- Banquillo: esquema de base de datos y permisos para Supabase.
 -- Pégalo entero en Supabase > SQL Editor y pulsa Run. Se puede ejecutar una sola vez sobre un proyecto vacío.
+-- Después ejecuta también bb2025.sql (experiencia, avances e incentivos).
 --
 -- Reglas de permisos:
 --   * Cualquiera (incluso sin cuenta) puede ver competiciones, equipos, plantillas y resultados.

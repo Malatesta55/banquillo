@@ -18,6 +18,7 @@ Sin configurar nada, la app arranca en **modo demo** con datos de ejemplo guarda
 ### 1. Base de datos en Supabase
 1. Crea una cuenta en <https://supabase.com> y pulsa **New project**. Elige una región europea y apunta la contraseña de la base de datos.
 2. Cuando esté listo, ve a **SQL Editor > New query**, pega todo el contenido de [`supabase/schema.sql`](supabase/schema.sql) y pulsa **Run**. Debe terminar con "Success".
+3. Después, en otra consulta nueva, pega [`supabase/bb2025.sql`](supabase/bb2025.sql) y pulsa **Run**. Añade la experiencia de los jugadores, los avances y los incentivos. Si ya tenías la base de datos creada, basta con ejecutar este archivo.
 3. En **Project Settings > API** copia la **Project URL** y la clave **anon public**. Estas dos son públicas y es normal que vayan en la web. No copies la clave `service_role`.
 4. En **Authentication > URL Configuration** pon en *Site URL* la dirección donde publicarás la web (la del paso 3). Así los emails de confirmación llevan al sitio correcto.
 

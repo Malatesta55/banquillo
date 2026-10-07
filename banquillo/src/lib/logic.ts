@@ -1,5 +1,5 @@
 import type { Competition, DB, Match, NewMatch, Team } from './types';
-import { REROLL_COST } from './races';
+import { APOTHECARY_COST, rerollCost } from './rosters';
 
 export function shuffle<T>(a: T[]): T[] {
   const r = a.slice();
@@ -107,7 +107,7 @@ export function progress(comp: Competition, teamCount: number, matches: Match[])
 
 export function teamValue(t: Team, db: DB): number {
   return db.players.filter(p => p.team_id === t.id && p.status !== 'dead').reduce((a, p) => a + p.value, 0)
-    + t.rerolls * REROLL_COST + (t.apothecary ? 50 : 0);
+    + t.rerolls * rerollCost(t.race) + (t.apothecary ? APOTHECARY_COST : 0);
 }
 
 export const fmtK = (n: number) => n.toLocaleString('es-ES') + 'k';

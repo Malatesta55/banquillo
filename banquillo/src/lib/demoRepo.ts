@@ -1,8 +1,9 @@
 import type { DB, Match, Profile, Repo } from './types';
 import { roundRobin } from './logic';
+import { starterLineup } from './rosters';
 
 /** Modo demo: todo en localStorage, con cuentas ficticias. Sirve para probar la app sin Supabase. */
-const KEY = 'banquillo-demo-v2';
+const KEY = 'banquillo-demo-v3';
 const uid = () => crypto.randomUUID();
 type Store = DB & { users: Record<string, string>; session: string | null };
 
@@ -13,7 +14,6 @@ function seed(): Store {
   const pick = <T,>(a: T[]) => a[Math.floor(r() * a.length)];
   const first = ['Grimm', 'Ulla', 'Brok', 'Tasha', 'Krug', 'Fen', 'Morra', 'Dagg', 'Ilsa', 'Rurik', 'Zeb', 'Hilda', 'Snag', 'Orla', 'Vex', 'Tor'];
   const last = ['Rompehuesos', 'Pies Ligeros', 'Mano Firme', 'el Tuerto', 'Cabezahierro', 'Colmillo', 'Barbaroja', 'Saltamuros', 'Trueno', 'Garra'];
-  const pos: [string, number][] = [['Lanzador', 80], ['Receptor', 70], ['Blitzer', 85], ['Blitzer', 85], ['Placador', 90], ['Línea', 50], ['Línea', 50], ['Línea', 50], ['Línea', 50], ['Línea', 50], ['Línea', 50]];
   const coaches = ['Andrés', 'Marta', 'Javi', 'Lucía', 'Pablo', 'Sergio'];
   const profiles: Profile[] = coaches.map(name => ({ id: uid(), name }));
   const users: Record<string, string> = {};
@@ -24,8 +24,8 @@ function seed(): Store {
     id: uid(), owner: profiles[i].id, name, race, hue, treasury: Math.round(r() * 8) * 10,
     rerolls: 2 + Math.floor(r() * 2), apothecary: r() > 0.4, fans: 1 + Math.floor(r() * 3), created_at: new Date(now + i).toISOString(),
   }));
-  const players = teams.flatMap(t => pos.map(([p, value], i) => ({
-    id: uid(), team_id: t.id, num: i + 1, name: pick(first) + ' ' + pick(last), pos: p, value,
+  const players = teams.flatMap(t => starterLineup(t.race).map((p, i) => ({
+    id: uid(), team_id: t.id, num: i + 1, name: pick(first) + ' ' + pick(last), pos: p.name, value: p.cost,
     spp: Math.floor(r() * 14), status: (r() > 0.93 ? 'mng' : 'ok') as 'ok' | 'mng',
   })));
   const liga = { id: uid(), organizer: profiles[0].id, name: 'Liga de Otoño 2026', type: 'liga' as const, double_round: false, total_rounds: 0, pts_w: 3, pts_d: 1, pts_l: 0, status: 'running' as const, created_at: new Date(now).toISOString() };

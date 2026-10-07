@@ -1,4 +1,4 @@
-import type { Advance, InducementPick } from './bb2025';
+import type { Advance, Injury, InducementPick, Stat } from './bb2025';
 export type Profile = { id: string; name: string };
 export type PlayerStatus = 'ok' | 'mng' | 'dead';
 export type Team = {
@@ -15,6 +15,8 @@ export type Player = {
 export type MatchPlayer = {
   match_id: string; player_id: string; team_id: string;
   td: number; cas: number; cmp: number; inter: number; ttm: number; mvp: boolean;
+  /** Lesión que sufrió en el partido y, si es permanente, la característica que pierde. */
+  injury: Injury; injury_stat: Stat | null;
 };
 /** Lo que pasa tras el partido para un equipo (ganancias, hinchas, errores caros). */
 export type Postgame = {

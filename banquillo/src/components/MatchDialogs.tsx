@@ -3,26 +3,33 @@ import { useStore } from '../lib/store';
 import { currentTeamValue, fmtK } from '../lib/logic';
 import {
   emptyPick, fansAfter, inducementsFor, MAX_FANS, MAX_MERCS, MAX_STARS, MERC_FEE, MERC_SKILL, MISTAKE_LABEL, mistakeFor, mistakeLoss,
-  pickCost, rand, SPP_LABEL, UNDERDOG_TREASURY, winnings, type InducementPick, type Mistake, type SppKey,
+  pickCost, rand, sppLabel, UNDERDOG_TREASURY, winnings, type InducementPick, type Mistake, type SppKey,
+  INJURY_HELP, INJURY_LABEL, injuryFromD16, isCasualty, lastingFromD6, type Injury, type Stat,
 } from '../lib/bb2025';
 import type { Match, MatchPlayer } from '../lib/types';
 import { Crest } from './ui';
 
 export type SppRow = Omit<MatchPlayer, 'match_id' | 'team_id'>;
 const COUNTS: Exclude<SppKey, 'mvp'>[] = ['td', 'cas', 'cmp', 'inter', 'ttm'];
-const blank = (player_id: string): SppRow => ({ player_id, td: 0, cas: 0, cmp: 0, inter: 0, ttm: 0, mvp: false });
+const INJURIES = Object.keys(INJURY_LABEL) as Injury[];
+const STATS: Stat[] = ['MA', 'ST', 'AG', 'PA', 'AV'];
+const blank = (player_id: string): SppRow => ({ player_id, td: 0, cas: 0, cmp: 0, inter: 0, ttm: 0, mvp: false, injury: 'none', injury_stat: null });
 
-/** Estado inicial de la experiencia de un equipo en un partido, a partir de lo ya guardado. */
+/** Estado inicial del acta de un equipo: los jugadores disponibles más los que ya tienen algo apuntado. */
 export function initialSpp(matchId: string, teamId: string, db: ReturnType<typeof useStore>['db']): Record<string, SppRow> {
   const out: Record<string, SppRow> = {};
-  db.players.filter(p => p.team_id === teamId && p.status !== 'dead').forEach(p => (out[p.id] = blank(p.id)));
+  db.players.filter(p => p.team_id === teamId && p.status === 'ok').forEach(p => (out[p.id] = blank(p.id)));
   db.match_players.filter(x => x.match_id === matchId && x.team_id === teamId).forEach(x => (out[x.player_id] = { ...blank(x.player_id), ...x }));
   return out;
 }
 export const sppRowsToSave = (rows: Record<string, SppRow>) =>
-  Object.values(rows).filter(r => r.mvp || COUNTS.some(k => r[k] > 0)).map(({ player_id, td, cas, cmp, inter, ttm, mvp }) => ({ player_id, td, cas, cmp, inter, ttm, mvp }));
+  Object.values(rows).filter(r => r.mvp || r.injury !== 'none' || COUNTS.some(k => r[k] > 0))
+    .map(({ player_id, td, cas, cmp, inter, ttm, mvp, injury, injury_stat }) =>
+      ({ player_id, td, cas, cmp, inter, ttm, mvp, injury, injury_stat: injury === 'li' ? injury_stat : null }));
+/** Bajas que sufrió un equipo según su acta: cuentan como lesiones causadas por el rival. */
+export const casualtiesSuffered = (rows: Record<string, SppRow> | undefined) => Object.values(rows ?? {}).filter(r => isCasualty(r.injury)).length;
 
-/** Tabla para apuntar los PE que gana cada jugador de un equipo en el partido. */
+/** Acta de un equipo: lo que hizo cada jugador (PE) y la lesión que sufrió. */
 export function SppEditor({ teamId, rows, onChange, td, cas }: {
   teamId: string; rows: Record<string, SppRow>; onChange: (r: Record<string, SppRow>) => void; td: number; cas: number;
 }) {
@@ -31,29 +38,47 @@ export function SppEditor({ teamId, rows, onChange, td, cas }: {
   const players = db.players.filter(p => rows[p.id]).sort((a, b) => a.num - b.num);
   const set = (id: string, patch: Partial<SppRow>) => onChange({ ...rows, [id]: { ...rows[id], ...patch } });
   const sum = (k: 'td' | 'cas') => Object.values(rows).reduce((a, r) => a + r[k], 0);
-  const mvpPool = players.filter(p => p.status === 'ok');
+  const mvpPool = players.filter(p => p.status === 'ok' && rows[p.id].injury !== 'dead');
+  const L = (k: SppKey) => sppLabel(t?.race ?? '', k);
+  const rollInjury = (id: string) => {
+    const injury = injuryFromD16(rand(16) + 1);
+    set(id, { injury, injury_stat: injury === 'li' ? lastingFromD6(rand(6) + 1) : null });
+  };
   return (
     <div style={{ display: 'grid', gap: 8 }}>
       <div className="row" style={{ justifyContent: 'space-between' }}>
-        <div className="team-line"><Crest team={t} /><b className="nm">Experiencia de {t?.name}</b></div>
+        <div className="team-line"><Crest team={t} /><span className="nm"><b>{t?.name}</b>
+          <small>PE: TD {L('td')[1].match(/\d+/)} · CAS {L('cas')[1].match(/\d+/)} · pase 1 · intercepción 2 · lanzar compañero 1 · MVP 4</small></span></div>
         <button type="button" className="btn small" disabled={!mvpPool.length} title="Elige al azar el MVP entre los jugadores disponibles"
           onClick={() => { const pick = mvpPool[rand(mvpPool.length)].id; onChange(Object.fromEntries(Object.entries(rows).map(([id, r]) => [id, { ...r, mvp: id === pick }]))); }}>
           Sortear MVP</button>
       </div>
       <div className="scroll"><table className="positions">
-        <thead><tr><th>#</th><th className="l">Jugador</th>{COUNTS.map(k => <th key={k} title={SPP_LABEL[k][1]}>{SPP_LABEL[k][0]}</th>)}<th title={SPP_LABEL.mvp[1]}>MVP</th></tr></thead>
-        <tbody>{players.map(p => (
-          <tr key={p.id}>
-            <td>{p.num}</td><td className="l">{p.name}<small className="note" style={{ display: 'block' }}>{p.pos}</small></td>
-            {COUNTS.map(k => <td key={k}><input type="number" min={0} aria-label={`${SPP_LABEL[k][1]} de ${p.name}`} style={{ width: 48 }}
-              value={rows[p.id][k]} onChange={e => set(p.id, { [k]: Math.max(0, parseInt(e.target.value, 10) || 0) })} /></td>)}
-            <td><input type="radio" name={`mvp-${teamId}`} aria-label={`MVP: ${p.name}`} checked={rows[p.id].mvp}
-              onChange={() => onChange(Object.fromEntries(Object.entries(rows).map(([id, r]) => [id, { ...r, mvp: id === p.id }])))} /></td>
-          </tr>))}
+        <thead><tr><th>#</th><th className="l">Jugador</th>{COUNTS.map(k => <th key={k} title={L(k)[1]}>{L(k)[0]}</th>)}<th title={L('mvp')[1]}>MVP</th>
+          <th className="l" title="Lesión que sufrió este jugador en el partido">Lesión sufrida</th></tr></thead>
+        <tbody>{players.map(p => {
+          const r = rows[p.id];
+          return (
+            <tr key={p.id} className={r.injury === 'dead' ? 'st-dead' : r.injury !== 'none' ? 'st-mng' : ''}>
+              <td>{p.num}</td><td className="l">{p.name}<small className="note" style={{ display: 'block' }}>{p.pos}</small></td>
+              {COUNTS.map(k => <td key={k}><input type="number" min={0} aria-label={`${L(k)[1]} de ${p.name}`} style={{ width: 48 }}
+                value={r[k]} onChange={e => set(p.id, { [k]: Math.max(0, parseInt(e.target.value, 10) || 0) })} /></td>)}
+              <td><input type="radio" name={`mvp-${teamId}`} aria-label={`MVP: ${p.name}`} checked={r.mvp}
+                onChange={() => onChange(Object.fromEntries(Object.entries(rows).map(([id, x]) => [id, { ...x, mvp: id === p.id }])))} /></td>
+              <td className="l"><div className="row" style={{ flexWrap: 'nowrap', gap: 4 }}>
+                <select aria-label={`Lesión sufrida por ${p.name}`} value={r.injury} title={INJURY_HELP[r.injury]}
+                  onChange={e => { const injury = e.target.value as Injury; set(p.id, { injury, injury_stat: injury === 'li' ? (r.injury_stat ?? 'AV') : null }); }}>
+                  {INJURIES.map(i => <option key={i} value={i} title={INJURY_HELP[i]}>{INJURY_LABEL[i]}</option>)}</select>
+                {r.injury === 'li' && <select aria-label={`Característica que pierde ${p.name}`} value={r.injury_stat ?? 'AV'} onChange={e => set(p.id, { injury_stat: e.target.value as Stat })}>
+                  {STATS.map(x => <option key={x} value={x}>−1 {x}</option>)}</select>}
+                <button type="button" className="btn small" title="Tirar en la tabla de lesiones (D16, y D6 si es permanente)" onClick={() => rollInjury(p.id)}>D16</button>
+              </div></td>
+            </tr>);
+        })}
         </tbody></table></div>
       {(sum('td') !== td || sum('cas') > cas) && <p className="note" style={{ color: 'var(--draw)' }}>
         {sum('td') !== td && `Los touchdowns de los jugadores (${sum('td')}) no cuadran con el marcador (${td}). `}
-        {sum('cas') > cas && `Hay más lesiones apuntadas a jugadores (${sum('cas')}) que en el acta (${cas}).`}</p>}
+        {sum('cas') > cas && `Hay más lesiones causadas apuntadas a jugadores (${sum('cas')}) que en el marcador (${cas}).`}</p>}
     </div>
   );
 }

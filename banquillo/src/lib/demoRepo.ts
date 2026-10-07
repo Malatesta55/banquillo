@@ -138,7 +138,14 @@ export function demoRepo(): Repo {
     },
     async saveMatchPlayers(match_id, team_id, rows) {
       const m = s.matches.find(x => x.id === match_id);
-      if (!m || (m.home !== team_id && m.away !== team_id) || !ownsTeam(team_id)) deny();
+      if (!m || (m.home !== team_id && m.away !== team_id)) deny();
+      if (!organizes(m!.competition_id) && !ownsTeam(m!.home) && !(m!.away && ownsTeam(m!.away))) deny();
+      if (rows.some(r => s.players.find(p => p.id === r.player_id)?.team_id !== team_id)) deny();
+      // Igual que el trigger de Supabase: deshace lo que aplicó el acta anterior y aplica la nueva.
+      const effect = (i: string) => (i === 'dead' ? 'dead' : ['sh', 'si', 'li'].includes(i) ? 'mng' : null);
+      const old = (s.match_players ?? []).filter(x => x.match_id === match_id && x.team_id === team_id);
+      old.forEach(x => { const p = s.players.find(y => y.id === x.player_id); const e = effect(x.injury); if (p && e && p.status === e) p.status = 'ok'; });
+      rows.forEach(x => { const p = s.players.find(y => y.id === x.player_id); const e = effect(x.injury); if (p && e) p.status = e; });
       s.match_players = (s.match_players ?? []).filter(x => !(x.match_id === match_id && x.team_id === team_id))
         .concat(rows.map(r => ({ ...r, match_id, team_id })));
       save();

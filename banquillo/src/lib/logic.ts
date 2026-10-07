@@ -1,5 +1,5 @@
 import type { Competition, DB, Match, NewMatch, Player, Team } from './types';
-import { SPP } from './bb2025';
+import { sppTable, type Stat } from './bb2025';
 import { APOTHECARY_COST, rerollCost } from './rosters';
 
 export function shuffle<T>(a: T[]): T[] {
@@ -128,10 +128,21 @@ export function compView(db: DB, id: string) {
 
 /** PE de un jugador: ajuste manual + lo apuntado en las actas, menos lo gastado en avances. */
 export function sppOf(p: Player, db: DB) {
+  const race = db.teams.find(t => t.id === p.team_id)?.race ?? '';
+  const v = sppTable(race);
   const earned = p.spp + db.match_players.filter(x => x.player_id === p.id)
-    .reduce((a, x) => a + x.td * SPP.td + x.cas * SPP.cas + x.cmp * SPP.cmp + x.inter * SPP.inter + x.ttm * SPP.ttm + (x.mvp ? SPP.mvp : 0), 0);
+    .reduce((a, x) => a + x.td * v.td + x.cas * v.cas + x.cmp * v.cmp + x.inter * v.inter + x.ttm * v.ttm + (x.mvp ? v.mvp : 0), 0);
   const spent = (p.advances ?? []).reduce((a, x) => a + x.spp, 0);
   return { earned, spent, available: earned - spent };
+}
+
+/** Secuelas de un jugador según las actas: características perdidas y lesiones persistentes. */
+export function injuriesOf(playerId: string, db: DB) {
+  const rows = db.match_players.filter(x => x.player_id === playerId);
+  return {
+    lasting: rows.filter(x => x.injury === 'li' && x.injury_stat).map(x => x.injury_stat as Stat),
+    niggling: rows.filter(x => x.injury === 'si').length,
+  };
 }
 
 /** Valor de equipo actual (VEA): sin los jugadores que se pierden el próximo partido. */

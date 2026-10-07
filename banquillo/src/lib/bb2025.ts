@@ -15,14 +15,23 @@ export const ELITE = ['Block', 'Dodge', 'Guard', 'Mighty Blow'];
 // ---------- Experiencia (PE / SPP) ----------
 export const SPP = { td: 3, cas: 2, cmp: 1, inter: 2, ttm: 1, mvp: 4 } as const;
 export type SppKey = keyof typeof SPP;
-export const SPP_LABEL: Record<SppKey, [string, string]> = {
-  td: ['TD', 'Touchdown (3 PE)'],
-  cas: ['CAS', 'Lesión causada con un placaje (2 PE)'],
-  cmp: ['Pase', 'Pase completo y preciso (1 PE)'],
-  inter: ['Int.', 'Intercepción (2 PE)'],
-  ttm: ['LCE', 'Lanzar compañero con éxito, o aterrizar bien tras ser lanzado (1 PE cada vez)'],
-  mvp: ['MVP', 'Jugador más valioso (4 PE)'],
+/** PE por acción para una raza: los equipos con Brawlin' Brutes ganan 2 por TD y 3 por lesión. */
+export function sppTable(race: string): Record<SppKey, number> {
+  return rosterOf(race)?.rules.includes("Brawlin' Brutes") ? { ...SPP, td: 2, cas: 3 } : { ...SPP };
+}
+const SPP_TEXT: Record<SppKey, [string, string]> = {
+  td: ['TD', 'Touchdown'],
+  cas: ['CAS', 'Lesión causada con un placaje'],
+  cmp: ['Pase', 'Pase completo y preciso'],
+  inter: ['Int.', 'Intercepción'],
+  ttm: ['LCE', 'Lanzar compañero con éxito, o aterrizar bien tras ser lanzado (cada uno)'],
+  mvp: ['MVP', 'Jugador más valioso'],
 };
+/** Nombre corto y descripción de cada acción con sus PE para esa raza. */
+export function sppLabel(race: string, k: SppKey): [string, string] {
+  const v = sppTable(race)[k];
+  return [SPP_TEXT[k][0], `${SPP_TEXT[k][1]} (${v} PE)`];
+}
 
 // ---------- Avances ----------
 export type AdvKind = 'random' | 'primary' | 'secondary' | 'stat';
@@ -54,7 +63,7 @@ export const STAT_ROLL: Record<number, Stat[]> = {
 export type Profile = { ma: number; st: number; ag: number; pa: number | null; av: number; skills: string[] };
 
 /** Perfil actual de un jugador: el de su posición más los avances comprados. */
-export function currentProfile(base: Position | undefined, advances: Advance[]): Profile | null {
+export function currentProfile(base: Position | undefined, advances: Advance[], lasting: Stat[] = []): Profile | null {
   if (!base) return null;
   const p: Profile = { ma: base.ma, st: base.st, ag: base.ag, pa: base.pa, av: base.av, skills: [...base.skills] };
   for (const a of advances) {
@@ -64,6 +73,14 @@ export function currentProfile(base: Position | undefined, advances: Advance[]):
     if (a.stat === 'AV') p.av++;
     if (a.stat === 'AG') p.ag--;
     if (a.stat === 'PA') p.pa = p.pa === null ? 6 : p.pa - 1;
+  }
+  // Lesiones permanentes: cada una baja 1 punto (AG, PA y AV suben su tirada objetivo).
+  for (const s of lasting) {
+    if (s === 'MA') p.ma = Math.max(1, p.ma - 1);
+    if (s === 'ST') p.st = Math.max(1, p.st - 1);
+    if (s === 'AG') p.ag = Math.min(6, p.ag + 1);
+    if (s === 'PA' && p.pa !== null) p.pa = Math.min(6, p.pa + 1);
+    if (s === 'AV') p.av = Math.max(3, p.av - 1);
   }
   return p;
 }
@@ -145,3 +162,20 @@ export function mistakeLoss(m: Mistake, treasury: number, extra: number) {
   if (m === 'catastrophe') return Math.max(0, treasury - extra * 10);
   return 0;
 }
+
+// ---------- Lesiones ----------
+/** Resultado de la tabla de lesiones (D16) que sufre un jugador. */
+export type Injury = 'none' | 'bh' | 'sh' | 'si' | 'li' | 'dead';
+export const INJURY_LABEL: Record<Injury, string> = {
+  none: '—', bh: 'Malherido', sh: 'Gravemente herido', si: 'Lesión grave', li: 'Lesión permanente', dead: 'Muerto',
+};
+export const INJURY_HELP: Record<Injury, string> = {
+  none: 'Sin lesión', bh: 'D16 1-8: se pierde el resto del partido, sin secuelas',
+  sh: 'D16 9-10: se pierde el próximo partido', si: 'D16 11-12: se pierde el próximo partido y queda con una lesión persistente',
+  li: 'D16 13-14: se pierde el próximo partido y pierde 1 punto en una característica', dead: 'D16 15-16: muere',
+};
+export const injuryFromD16 = (d: number): Injury => (d <= 8 ? 'bh' : d <= 10 ? 'sh' : d <= 12 ? 'si' : d <= 14 ? 'li' : 'dead');
+/** Tabla de lesión permanente (D6): qué característica baja. */
+export const lastingFromD6 = (d: number): Stat => (d <= 2 ? 'AV' : d === 3 ? 'MA' : d === 4 ? 'PA' : d === 5 ? 'AG' : 'ST');
+/** Lesiones que cuentan como baja causada al rival (todas menos ninguna). */
+export const isCasualty = (i: Injury | undefined) => !!i && i !== 'none';
